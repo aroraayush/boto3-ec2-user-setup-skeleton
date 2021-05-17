@@ -1,0 +1,66 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.7.2/styles/dracula.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/10.7.2/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</head>
+<body>
+  <h1>Boto 3 deployment</h1>
+  <p>Develop an automation program that takes a YAML configuration file as input and deploys a Linux AWS EC2 instance with two volumes and two users.</p>
+  <p>Here are some guidelines to follow:</p>
+  <ul>
+  <li>Create a YAML file based on the configuration provided below for consumption by your application</li>
+  <li>You may modify the configuration, but do not do so to the extent that you fundamentally change the exercise</li>
+  <li>Include the YAML config file in your repo</li>
+  <li>Use Python and Boto3</li>
+  <li>Do not use configuration management, provisioning, or IaC tools such as Ansible, CloudFormation, Terraform, etc.</li>
+  </ul>
+  <div class="sourceCode" id="cb1"><pre class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="pp">---</span></span>
+  <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"># This YAML configuration specifies a server with two volumes and two users</span></span>
+  <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">server</span><span class="kw">:</span></span>
+  <span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">instance_type</span><span class="kw">:</span><span class="at"> t2.micro</span></span>
+  <span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">ami_type</span><span class="kw">:</span><span class="at"> amzn2</span></span>
+  <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">architecture</span><span class="kw">:</span><span class="at"> x86_64</span></span>
+  <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">root_device_type</span><span class="kw">:</span><span class="at"> ebs</span></span>
+  <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">virtualization_type</span><span class="kw">:</span><span class="at"> hvm</span></span>
+  <span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">min_count</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
+  <span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">max_count</span><span class="kw">:</span><span class="at"> </span><span class="dv">1</span></span>
+  <span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">volumes</span><span class="kw">:</span></span>
+  <span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="fu">device</span><span class="kw">:</span><span class="at"> /dev/xvda</span></span>
+  <span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">size_gb</span><span class="kw">:</span><span class="at"> </span><span class="dv">10</span></span>
+  <span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">type</span><span class="kw">:</span><span class="at"> ext4</span></span>
+  <span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">mount</span><span class="kw">:</span><span class="at"> /</span></span>
+  <span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="fu">device</span><span class="kw">:</span><span class="at"> /dev/xvdf</span></span>
+  <span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">size_gb</span><span class="kw">:</span><span class="at"> </span><span class="dv">100</span></span>
+  <span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">type</span><span class="kw">:</span><span class="at"> xfs</span></span>
+  <span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">mount</span><span class="kw">:</span><span class="at"> /data</span></span>
+  <span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="at">  </span><span class="fu">users</span><span class="kw">:</span></span>
+  <span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="fu">login</span><span class="kw">:</span><span class="at"> user1</span></span>
+  <span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">ssh_key</span><span class="kw">:</span><span class="at"> --user1 ssh public key goes here-- user1@localhost</span></span>
+  <span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="at">    </span><span class="kw">-</span><span class="at"> </span><span class="fu">login</span><span class="kw">:</span><span class="at"> user2</span></span>
+  <span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="at">      </span><span class="fu">ssh_key</span><span class="kw">:</span><span class="at"> --user2 ssh public key goes here-- user2@localhost</span></span></code></pre></div>
+  <h3 id="what-are-the-requirements">What are the requirements?</h3>
+  <p>We must be able to:</p>
+  <ol type="1">
+  <li>Run your program</li>
+  <li>Deploy the virtual machine</li>
+  <li>SSH into the instance as user1 and user2</li>
+  <li>Read from and write to each of two volumes</li>
+  </ol>
+  <p>Please assume the evaluator does not have prior experience executing programs in your chosen language or creating virtual machines via your chosen deployment method. Therefore, please include any documentation necessary to accomplish the above requirements.</p>
+  <h3 id="how-do-i-submit-it">How do I submit it?</h3>
+  <p>Provide a link to a public repository (i.e., GitHub, Bitbucket) to your recruiter. Please do not send files directly via email.</p>
+  <h3 id="faqs">FAQs</h3>
+    <p><strong>How will this exercise be evaluated?</strong></p>
+    <p>An engineer will review the code you submit. At a minimum they must be able to run the program, and the program must produce the expected results. You should provide any necessary documentation within the repository. While your solution does not need to be fully production ready, you are being evaluated so put your best foot forward!</p>
+    <p><strong>I have questions about the problem statement.</strong></p>
+    <p>For any requirements not specified above, use your best judgement to determine expected result. You can elaborate on your decisions via the documentation you provide in your repo.</p>
+    <p><strong>Can I provide a private repository?</strong></p>
+    <p>If at all possible, we prefer a public repository because we do not know which engineer will be evaluating your submission. Providing a public repository ensures a speedy review of your submission. If you are still uncomfortable providing a public repository, you can work with your recruiter to provide access to the reviewing engineer.</p>
+    <p><strong>How long do I have to complete the exercise?</strong></p>
+    <p>There is no time limit for the exercise. Out of respect for your time, we designed this exercise with the intent that it should take you a few hours. But, please take as much time as you need to complete the work.</p></body>
+</html>
