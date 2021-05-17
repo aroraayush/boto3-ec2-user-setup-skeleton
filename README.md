@@ -6,7 +6,7 @@ This project reads a YAML configuration file and set ups ec2 instances with EBS 
 #### Prerequisites:
 - Python 3
 - AWS CLI (natively installed or via docker)
-- An IAM user with programmatic access for usage with CLI or SDK.
+- An IAM user with programmatic access for usage with CLI or SDK and permission - `EC2FullAccess`.
 - Keys for the before mentioned IAM user.
 - `config.yml` should be in the same directory as `program.py`
 - No need to install any python package. Auto installation handled by the program
