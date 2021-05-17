@@ -1,4 +1,4 @@
-import yaml, os, base64
+import yaml, os, base64, time
 from pip._internal import main
 
 class Utils:
@@ -33,6 +33,9 @@ class InfraSetup(Utils):
         Fetches the meta data for EC2 machine types from Amazon Servers
         based on the filters proivded by user in server_cfg.
         """
+        
+        print("Fetching the meta data for EC2 machine types based on user filter..")
+
         user_filters = list()
         
         if 'architecture' in server_cfg:
@@ -49,6 +52,7 @@ class InfraSetup(Utils):
         if response is None or 'Images' not in response or len(response['Images']) == 0:
             raise Exception("No instances found as per the config. Try changing the configuration")
 
+        print("Instances type selected based on user filter !")
         return response['Images'][0]['ImageId']
     
     def instantiate_instances(self, server_cfg, selected_image_id, key_name, sg_group_name):
@@ -69,6 +73,8 @@ class InfraSetup(Utils):
         min_count = server_cfg['min_count'] if "min_count" in server_cfg else 1
         instance_type = server_cfg['instance_type'] if "instance_type" in server_cfg else 't2.micro'
         
+        print("Creating instances....")
+
         response = self.ec2_client.create_instances(
             ImageId = selected_image_id, 
             MinCount = min_count, 
@@ -80,8 +86,14 @@ class InfraSetup(Utils):
         
         instance_ids = []
         for instance in response:
+            # while instance.state != 'running':
+            print('instance is in state ', instance.state)
+            instance.wait_until_running()
+            print('instance is in state ', instance.state) 
             instance_ids.append(instance.instance_id)
         
+        print("Instances created succesfully!!!")
+
         return instance_ids
     
     def generate_key_pair(self):
@@ -92,6 +104,7 @@ class InfraSetup(Utils):
         reqd_permission = '400'
         
         try:
+            print("Generating Key Value Pairs with Key name :", keyname)
             
             # calling the boto ec2 function to create a key pair
             key_pair = self.client.create_key_pair(KeyName = keyname)
@@ -116,7 +129,7 @@ class InfraSetup(Utils):
         except Exception as e:
             # If the same key already existing, we are ignoring it. Might not be the case for production env.
             if e.response['Error']['Code'] == "InvalidKeyPair.Duplicate":
-                pass
+                print("Key Value Pairs with Key name ", keyname, " already exists. Using previous!")
             else:
                 print("Error while generating Key pair ", e)
         finally:
@@ -128,6 +141,7 @@ class InfraSetup(Utils):
         """
         group_name = 'SECURITY_GROUP_EC2_SSH'
         try:
+            print("Creating custom security group",group_name,"....")
             response = self.client.describe_vpcs()
             vpc_id = response.get('Vpcs', [{}])[0].get('VpcId', '')
 
@@ -147,12 +161,14 @@ class InfraSetup(Utils):
                 ])
             print('Ingress Successfully Set for Security Group')
             if data['ResponseMetadata']['HTTPStatusCode'] == 200:
+                print("Security group created sucessfully!")
                 return group_name
             else:
                 raise Exception("Unable to create Security Group")
 
         except Exception as e:
             if e.response['Error']['Code'] == 'InvalidGroup.Duplicate':
+                print("Security group already exists. Using previous one!")
                 return group_name
             print(e) 
 
@@ -171,6 +187,7 @@ class InfraSetup(Utils):
         Adding new users to instances [server_ids] and attaching Key Pair [key_name]
         """
         for server_id in server_ids:
+            print("Adding" , len(users_cfg), "users to server", server_id)
             server_host = self.get_host(server_id)
             self.add_user(server_host, key_name, users_cfg)
             
@@ -181,7 +198,9 @@ class InfraSetup(Utils):
         instances = self.ec2_client.instances.filter(
             Filters=[{'Name': 'instance-id', 'Values': [server_id]}])
 
+        print("\tObtaining the public IP address for server ", server_id,"......")
         for instance in instances:
+            print("\tPublic IP address for server ", server_id," obtained !!")
             return instance.public_dns_name
         
         raise Exception("Error : Public IP for instance id : ",server_id," not generated yet")
@@ -191,6 +210,9 @@ class InfraSetup(Utils):
         Creating an SSH client to add users.
         Obtaining the public key for the PEM file using the ssh-keygen of macOS
         """
+
+        print("User creation for server started...")
+
         ssh = self.paramiko.SSHClient()
         key_path = os.path.join(os.getcwd(), key_name + ".pem")
         
@@ -207,6 +229,7 @@ class InfraSetup(Utils):
         
         ssh.set_missing_host_key_policy(self.paramiko.AutoAddPolicy())
         ssh.connect(hostname = server_host, username = "ec2-user", pkey = private_key)
+        print("Connecting to instance via root access..")
 
         # Copying SSH file to Instance for User creation.
         # sftp = ssh.open_sftp()
@@ -218,6 +241,7 @@ class InfraSetup(Utils):
             
             # Adding new user
             _, _, ssh_stderr = ssh.exec_command("sudo adduser " + username)
+            print("Creating user ", username, "on server...")
             
             # Adding required files and folders to add public key data
             _, _, ssh_stderr = ssh.exec_command("sudo -H -u "+username+" bash -c 'mkdir ~/.ssh ; chmod 700 ~/.ssh; cd ~/.ssh && touch authorized_keys; chmod 600 ~/.ssh/authorized_keys;'")
@@ -232,6 +256,9 @@ class InfraSetup(Utils):
             err = ssh_stderr.readlines()
             if err:
                 print("Error while writing in the ~/.ssh/authorized_keys for user ", username," : " , err)
+            
+            print("User ", username, "created sucessfully!. SSH with Keyfile ",key_path)
+            print('Usage ssh -i "'+key_path+'"',username+'@'+server_host,"\n\n")
 
     def create_and_attach_volume(self, volumes_cfg, instance_ids, DryRunFlag):
         
@@ -313,3 +340,53 @@ class InfraSetup(Utils):
 
 infra = InfraSetup("config.yml")
 infra.setup()
+
+
+# Attachment State:
+#         'State': 'attaching'|'attached'|'detaching'|'detached'
+
+#botocore.exceptions.ClientError:
+#An error occurred (InvalidParameterCombination) when calling the CreateVolume 
+# operation: The parameter iops is not supported for gp2 volumes.
+# if volume_id:
+#     try:
+#         print('***attaching volume:', volume_id, 'to:', instance_id)
+#         response= ec2_client.attach_volume(
+#             Device=device,
+#             InstanceId=instance_id,
+#             VolumeId=volume_id,
+#             DryRun=DryRunFlag
+#             )
+#         #pprint(response)
+
+#         if response['ResponseMetadata']['HTTPStatusCode']== 200:
+#             ec2_client.get_waiter('volume_in_use').wait(
+#                 VolumeIds=[volume_id],
+#                 DryRun=False
+#                 )
+#             print('***Success!! volume:', volume_id, 'is attached to instance:', 
+#   instance_id)
+
+#     except Exception as e:
+#         print('***Error - Failed to attach volume:', volume_id, 'to the instance:', instance_id)
+#         print(type(e), ':', e)
+
+# #botocore.exceptions.ClientError:
+# #An error occurred (IncorrectState) when calling the AttachVolume operation: vol- 
+# 0fcc7c3319a885513 is not 'available'.
+# #An error occurred (InvalidParameterValue) when calling the AttachVolume operation: 
+# Invalid value '/dev/sdc' for unixDevice. Attachment point /dev/sdc is already in use
+
+# #__main__
+# session= boto3.session.Session()
+# region_name= session.region_name
+# #region_name='ap-south-1'
+# availability_zone='ap-south-1a'
+# bdm='/dev/sdc'
+# instance_id='i-08364669ada3804d3'
+
+# start= -perf_counter()
+# ec2_client= boto3.client('ec2', region_name=region_name)
+# create_and_attach_volume(ec2_client, availability_zone, DryRunFlag=False, bdm, 
+# instance_id)
+# print('***duration:', (start+ perf_counter()), 'secs')
