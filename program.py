@@ -55,7 +55,7 @@ class InfraSetup(Utils):
         print("Instances type selected based on user filter !")
         return response['Images'][0]['ImageId']
     
-    def instantiate_instances(self, server_cfg, selected_image_id, key_name, sg_group_name):
+    def instantiate_instances(self, server_cfg, selected_image_id, key_name, sg_group_name, volumes_cfg):
         '''
         Instantiates custom ec2 instances based on the configuration provided by the user.
         We add a custom security group with inbound rules for SSH.
@@ -67,6 +67,9 @@ class InfraSetup(Utils):
         
         General Creation State:
         'State': 'creating'|'available'|'in-use'|'deleting'|'deleted'|'error'   
+
+        Attachment State:
+        'State': 'attaching'|'attached'|'detaching'|'detached'
         '''
 
         max_count = server_cfg['max_count'] if "max_count" in server_cfg else 1
@@ -75,13 +78,22 @@ class InfraSetup(Utils):
         
         print("Creating instances....")
 
+        block_device_mappings = []
+        for volume_cfg in volumes_cfg:
+
+                size_gb = volume_cfg['size_gb'] if 'size_gb' in volume_cfg else 10
+                device = volume_cfg['device'] if 'device' in volume_cfg else '/dev/xvda'
+
+                block_device_mappings.append({"DeviceName": device,"Ebs" : { "VolumeSize" : size_gb }})
+
         response = self.ec2_client.create_instances(
             ImageId = selected_image_id, 
             MinCount = min_count, 
             MaxCount = max_count,
             InstanceType = instance_type,
             KeyName = key_name,
-            SecurityGroups = [ sg_group_name ]
+            SecurityGroups = [ sg_group_name ],
+            BlockDeviceMappings = block_device_mappings
         )
         
         instance_ids = []
@@ -92,6 +104,7 @@ class InfraSetup(Utils):
             print('instance is in state ', instance.state) 
             instance_ids.append(instance.instance_id)
         
+        time.sleep(30)
         print("Instances created succesfully!!!")
 
         return instance_ids
@@ -182,14 +195,14 @@ class InfraSetup(Utils):
         return group_id
     
 
-    def add_users(self, server_ids, key_name, users_cfg):
+    def add_users_n_format_disks(self, server_ids, key_name, users_cfg, volumes_cfg):
         """
         Adding new users to instances [server_ids] and attaching Key Pair [key_name]
         """
         for server_id in server_ids:
             print("Adding" , len(users_cfg), "users to server", server_id)
             server_host = self.get_host(server_id)
-            self.add_user(server_host, key_name, users_cfg)
+            self.add_user_n_format_disks(server_host, key_name, users_cfg, volumes_cfg)
             
     def get_host(self, server_id):
         """
@@ -205,7 +218,7 @@ class InfraSetup(Utils):
         
         raise Exception("Error : Public IP for instance id : ",server_id," not generated yet")
 
-    def add_user(self, server_host, key_name, users_cfg):
+    def add_user_n_format_disks(self, server_host, key_name, users_cfg, volumes_cfg):
         """
         Creating an SSH client to add users.
         Obtaining the public key for the PEM file using the ssh-keygen of macOS
@@ -231,17 +244,31 @@ class InfraSetup(Utils):
         ssh.connect(hostname = server_host, username = "ec2-user", pkey = private_key)
         print("Connecting to instance via root access..")
 
-        # Copying SSH file to Instance for User creation.
+        # Copying SSH file to Instance for User creation. Removed while refactoring, kept for future ref
         # sftp = ssh.open_sftp()
         # shell_path = os.path.join(os.getcwd(),"shell_script.sh")
         # sftp.put(shell_path, "/home/ec2-user/shell_script.sh")
 
+        # Formating and mounting the file systems
+        print("Formating and mounting the file systems")
+        for volume_cfg in volumes_cfg:
+            mnt_cmd = "sudo mkfs -t " + volume_cfg["type"] + " " + volume_cfg["device"] + " && sudo mkdir " + volume_cfg["mount"] + " && sudo mount " + volume_cfg["device"] +" " +volume_cfg["mount"]
+            print(mnt_cmd)
+            _, _, ssh_stderr = ssh.exec_command(mnt_cmd)
+            err = ssh_stderr.readlines()
+            if err:
+                print("Error while mounting disk ", err)
+        
+        
         for user_cfg in users_cfg:
             username = user_cfg['login']
-            
+
             # Adding new user
-            _, _, ssh_stderr = ssh.exec_command("sudo adduser " + username)
             print("Creating user ", username, "on server...")
+            _, _, ssh_stderr = ssh.exec_command("sudo adduser " + username)
+            err = ssh_stderr.readlines()
+            if err:
+                print("Error while creating user ", username," : " , err)
             
             # Adding required files and folders to add public key data
             _, _, ssh_stderr = ssh.exec_command("sudo -H -u "+username+" bash -c 'mkdir ~/.ssh ; chmod 700 ~/.ssh; cd ~/.ssh && touch authorized_keys; chmod 600 ~/.ssh/authorized_keys;'")
@@ -288,17 +315,14 @@ class InfraSetup(Utils):
                     print('***Success!! volume:', volume_id, 'created...')
 
                     
-                    # for instance_id in instance_ids:
-                    instance_id = "i-00b77133a8956043d"
-                    VolumeId = "VolumeId"
-                    print(instance_id)
-                    attach_response = self.client.attach_volume(
-                        Device = device,
-                        InstanceId = instance_id,
-                        VolumeId = volume_id,
-                        DryRun = DryRunFlag
-                    )
-                    print(attach_response)
+                    for instance_id in instance_ids:
+                        attach_response = self.client.attach_volume(
+                            Device = volume_cfg['mount'],
+                            InstanceId = instance_id,
+                            VolumeId = volume_id,
+                            DryRun = DryRunFlag
+                        )
+                        print(attach_response)
 
         except Exception as e:
                 print('***Failed to create the volume...')
@@ -326,12 +350,13 @@ class InfraSetup(Utils):
                 # Generated Key Value Pairs
                 key_name = self.generate_key_pair()
                 
-                # New servers started.
-                server_ids = self.instantiate_instances(server_cfg, selected_image_id,key_name, sg_group_name)
+                # New servers started. Volume attachments aso there.
+                server_ids = self.instantiate_instances(server_cfg, selected_image_id,key_name, sg_group_name, volume_cfg)
 
                 # Adding users and attaching them to the public key.
-                self.add_users(server_ids, key_name, users_cfg)
+                self.add_users_n_format_disks(server_ids, key_name, users_cfg, volume_cfg)
                 
+                # Handled in instantiate_instances function
                 # self.create_and_attach_volume(volume_cfg, server_ids, DryRunFlag = False)
 
             except yaml.YAMLError as exc:
@@ -340,53 +365,3 @@ class InfraSetup(Utils):
 
 infra = InfraSetup("config.yml")
 infra.setup()
-
-
-# Attachment State:
-#         'State': 'attaching'|'attached'|'detaching'|'detached'
-
-#botocore.exceptions.ClientError:
-#An error occurred (InvalidParameterCombination) when calling the CreateVolume 
-# operation: The parameter iops is not supported for gp2 volumes.
-# if volume_id:
-#     try:
-#         print('***attaching volume:', volume_id, 'to:', instance_id)
-#         response= ec2_client.attach_volume(
-#             Device=device,
-#             InstanceId=instance_id,
-#             VolumeId=volume_id,
-#             DryRun=DryRunFlag
-#             )
-#         #pprint(response)
-
-#         if response['ResponseMetadata']['HTTPStatusCode']== 200:
-#             ec2_client.get_waiter('volume_in_use').wait(
-#                 VolumeIds=[volume_id],
-#                 DryRun=False
-#                 )
-#             print('***Success!! volume:', volume_id, 'is attached to instance:', 
-#   instance_id)
-
-#     except Exception as e:
-#         print('***Error - Failed to attach volume:', volume_id, 'to the instance:', instance_id)
-#         print(type(e), ':', e)
-
-# #botocore.exceptions.ClientError:
-# #An error occurred (IncorrectState) when calling the AttachVolume operation: vol- 
-# 0fcc7c3319a885513 is not 'available'.
-# #An error occurred (InvalidParameterValue) when calling the AttachVolume operation: 
-# Invalid value '/dev/sdc' for unixDevice. Attachment point /dev/sdc is already in use
-
-# #__main__
-# session= boto3.session.Session()
-# region_name= session.region_name
-# #region_name='ap-south-1'
-# availability_zone='ap-south-1a'
-# bdm='/dev/sdc'
-# instance_id='i-08364669ada3804d3'
-
-# start= -perf_counter()
-# ec2_client= boto3.client('ec2', region_name=region_name)
-# create_and_attach_volume(ec2_client, availability_zone, DryRunFlag=False, bdm, 
-# instance_id)
-# print('***duration:', (start+ perf_counter()), 'secs')
