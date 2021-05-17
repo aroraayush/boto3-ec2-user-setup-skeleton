@@ -1,3 +1,5 @@
+# Usage removed while code refactoring - For reference purpose
+
 #! /bin/bash
 
 USERNAME=$1;
@@ -16,4 +18,3 @@ sudo -H -u $USERNAME bash -c 'cd ~/.ssh && touch authorized_keys'
 sudo -H -u $USERNAME bash -c 'echo "$PUBLIC_KEY" > ~/.ssh/authorized_keys'
 sudo -H -u $USERNAME bash -c 'chmod 600 ~/.ssh/authorized_keys' 
 sudo -H -u $USERNAME bash -c 'echo "Logging out as $USER"' 
-
